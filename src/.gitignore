@@ -1,0 +1,21 @@
+# 컴파일 결과물
+*.class
+/bin/
+/out/
+
+# VS Code 설정
+.vscode/
+
+# OS별 잡파일
+.DS_Store
+Thumbs.db
+
+# 로그 파일
+*.log
+
+# 빌드/임시 폴더 있으면 여기 추가
+target/
+build/
+
+# 혹시 나중에 추가 라이브러리 폴더 있으면
+# lib/ 밑에 jar는 올리고 싶으면 주석 처리해도 됨
