@@ -10,6 +10,9 @@ public class Protocol {
     public static final String CHAT_MESSAGE_SEND = "CHAT_SEND:";
     public static final String PHOTO_UPLOAD_REQUEST = "PHOTO_UPLOAD:";
 
+    public static final String LOGOUT_REQUEST       = "LOGOUT:";       // LOGOUT:
+    public static final String UPDATE_USER_REQUEST  = "UPDATE_USER:";  // UPDATE_USER:...데이터...
+    public static final String DELETE_USER_REQUEST  = "DELETE_USER:";  // DELETE_USER:...데이터...
     
     // 명령어 응답 (서버 -> 클라이언트)
     public static final String SUCCESS_RESPONSE = "SUCCESS:";

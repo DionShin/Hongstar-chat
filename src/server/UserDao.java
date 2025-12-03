@@ -40,23 +40,27 @@ public class UserDao {
 
     // 로그인 체크
     public boolean checkLogin(String id, String pw) {
-        String sql = "SELECT id FROM user_table WHERE id = ? AND password = ?";
+    String sql = "SELECT id FROM user_table WHERE id = ? AND password = ?";
 
-        try (
-            Connection conn = DBUtil.getConnection();
-            PreparedStatement pstmt = conn.prepareStatement(sql)
-        ) {
-            pstmt.setString(1, id);
-            pstmt.setString(2, pw);
-            ResultSet rs = pstmt.executeQuery();
+    try (
+        Connection conn = DBUtil.getConnection();
+        PreparedStatement pstmt = conn.prepareStatement(sql)
+    ) {
+        pstmt.setString(1, id);
+        pstmt.setString(2, pw);
+        ResultSet rs = pstmt.executeQuery();
 
-            return rs.next();
+        boolean exists = rs.next();
+        System.out.println("[서버] DB 로그인 검사 결과: " + exists);  // <-- 로그추가
 
-        } catch (SQLException e) {
-            System.out.println("[서버] 로그인 확인 중 오류: " + e.getMessage());
-            return false;
-        }
+        return exists;
+
+    } catch (SQLException e) {
+        System.out.println("[서버] 로그인 확인 중 오류: " + e.getMessage());
+        return false;
     }
+}
+
 
     // 아이디 중복 검사
     public boolean existsId(String id) {
@@ -73,6 +77,55 @@ public class UserDao {
 
         } catch (SQLException e) {
             System.out.println("[서버] 중복검사 중 오류: " + e.getMessage());
+            return false;
+        }
+    }
+
+     // 회원 정보 수정
+    public boolean updateUser(String id, String pw, String name,
+                              int gender, String birth,
+                              String email, String phone) {
+
+        String sql = "UPDATE user_table "
+                   + "SET password = ?, username = ?, gender = ?, birth = ?, email = ?, phone = ? "
+                   + "WHERE id = ?";
+
+        try (
+            Connection conn = DBUtil.getConnection();
+            PreparedStatement pstmt = conn.prepareStatement(sql)
+        ) {
+            pstmt.setString(1, pw);
+            pstmt.setString(2, name);
+            pstmt.setInt(3, gender);
+            pstmt.setString(4, birth);   // "YYYY-MM-DD"
+            pstmt.setString(5, email);
+            pstmt.setString(6, phone);
+            pstmt.setString(7, id);
+
+            int rows = pstmt.executeUpdate();
+            return rows > 0;
+
+        } catch (SQLException e) {
+            System.out.println("[서버] 회원 정보 수정 중 오류: " + e.getMessage());
+            return false;
+        }
+    }
+
+    // 회원 삭제
+    public boolean deleteUser(String id) {
+
+        String sql = "DELETE FROM user_table WHERE id = ?";
+
+        try (
+            Connection conn = DBUtil.getConnection();
+            PreparedStatement pstmt = conn.prepareStatement(sql)
+        ) {
+            pstmt.setString(1, id);
+            int rows = pstmt.executeUpdate();
+            return rows > 0;
+
+        } catch (SQLException e) {
+            System.out.println("[서버] 회원 삭제 중 오류: " + e.getMessage());
             return false;
         }
     }
