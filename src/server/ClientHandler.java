@@ -79,39 +79,46 @@ public class ClientHandler extends Thread {
      * 어떤 요청인지 판단해서 각각의 처리 메소드를 호출.
      */
     private String handleRequest(String line) {
-        try {
-            if (line.startsWith(Protocol.LOGIN_REQUEST)) {
-                // 예: "LOGIN:id:pw"
-                String data = line.substring(Protocol.LOGIN_REQUEST.length());
-                return handleLogin(data);
+    try {
 
-            } else if (line.startsWith(Protocol.JOIN_REQUEST)) {
-                // 예: "JOIN:id:pw:name:gender:birth:email:phone"
-                String data = line.substring(Protocol.JOIN_REQUEST.length());
-                return handleJoin(data);
-
-            } else if (line.startsWith(Protocol.LOGOUT_REQUEST)) {
-                // 예: "LOGOUT:" (추가 데이터 없음)
-                return handleLogout();
-
-            } else if (line.startsWith(Protocol.UPDATE_USER_REQUEST)) {
-                // 예: "UPDATE_USER:id:pw:name:gender:birth:email:phone"
-                String data = line.substring(Protocol.UPDATE_USER_REQUEST.length());
-                return handleUpdateUser(data);
-
-            } else if (line.startsWith(Protocol.DELETE_USER_REQUEST)) {
-                // 예: "DELETE_USER:id:pw"
-                String data = line.substring(Protocol.DELETE_USER_REQUEST.length());
-                return handleDeleteUser(data);
-
-            } else {
-                return Protocol.FAIL_RESPONSE + "알_수_없는_요청";
-            }
-        } catch (Exception e) {
-            System.out.println("[서버] 요청 처리 중 예외: " + e.getMessage());
-            return Protocol.FAIL_RESPONSE + "서버_오류";
+        if (line.startsWith(Protocol.LOGIN_REQUEST)) {
+            String data = line.substring(Protocol.LOGIN_REQUEST.length());
+            return handleLogin(data);
         }
+
+        else if (line.startsWith(Protocol.JOIN_REQUEST)) {
+            String data = line.substring(Protocol.JOIN_REQUEST.length());
+            return handleJoin(data);
+        }
+
+        else if (line.startsWith(Protocol.LOGOUT_REQUEST)) {
+            return handleLogout();
+        }
+
+        else if (line.startsWith(Protocol.UPDATE_USER_REQUEST)) {
+            // UPDATE_USER:id:pw:name:email:phone  → gender/birth 제외 (네 DB 구조 기준!)
+            String data = line.substring(Protocol.UPDATE_USER_REQUEST.length());
+            return handleUpdateUser(data);
+        }
+
+        else if (line.startsWith(Protocol.DELETE_USER_REQUEST)) {
+            // DELETE_USER:id:pw
+            String data = line.substring(Protocol.DELETE_USER_REQUEST.length());
+            return handleDeleteUser(data);
+        }
+
+        else {
+            return Protocol.FAIL_RESPONSE + "알_수_없는_요청";
+        }
+
+    } catch (Exception e) {
+        System.out.println("[서버] 요청 처리 중 예외: " + e.getMessage());
+        return Protocol.FAIL_RESPONSE + "서버_오류";
     }
+}
+
+
+    
 
     /**
      * 로그인 처리
@@ -179,33 +186,35 @@ public class ClientHandler extends Thread {
 
     /**
      * 사용자 정보 수정 처리
-     * data 형식: "id:pw:name:gender:birth:email:phone"
-     *  - 여기서는 간단히, 넘어온 값으로 그대로 UPDATE 해준다고 가정.
-     *  - 비밀번호 확인 로직이 필요하면 checkLogin(id, pw) 한 번 더 호출 가능.
      */
-    private String handleUpdateUser(String data) {
-        String[] parts = data.split(":");
-        if (parts.length != 7) {
-            return Protocol.FAIL_RESPONSE + "형식_오류";
-        }
+    // ClientHandler.java 안
 
-        String id = parts[0];
-        String pw = parts[1];
-        String name = parts[2];
-        int gender = Integer.parseInt(parts[3]);
-        String birth = parts[4];
-        String email = parts[5];
-        String phone = parts[6];
+/**
+ * data 형식: "id:newPw:newName:newEmail:newPhone"
+ */
+private String handleUpdateUser(String data) {
 
-        boolean ok = userDao.updateUser(id, pw, name, gender, birth, email, phone);
-        if (ok) {
-            System.out.println("[서버] 회원 정보 수정 성공: " + id);
-            return Protocol.SUCCESS_RESPONSE + "UPDATE_USER";
-        } else {
-            System.out.println("[서버] 회원 정보 수정 실패: " + id);
-            return Protocol.FAIL_RESPONSE + "DB_오류";
-        }
+    // 빈 항목 허용 — length 유지
+    String[] parts = data.split(":", -1);
+
+    System.out.println("[서버] UPDATE_USER data: " + data);
+    System.out.println("[서버] UPDATE_USER split length = " + parts.length);
+
+    if (parts.length != 5) {
+        return Protocol.FAIL_RESPONSE + "형식_오류";
     }
+
+    String id       = parts[0];
+    String newPw    = parts[1];
+    String newName  = parts[2];
+    String newEmail = parts[3];
+    String newPhone = parts[4];
+
+    boolean ok = userDao.updateUser(id, newPw, newName, newEmail, newPhone);
+
+    if (ok) return Protocol.SUCCESS_RESPONSE + id;
+    return Protocol.FAIL_RESPONSE + "DB_오류";
+}
 
     /**
      * 사용자 삭제(회원 탈퇴) 처리

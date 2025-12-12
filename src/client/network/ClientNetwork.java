@@ -9,13 +9,14 @@ import common.Protocol;
 import javax.swing.JOptionPane;
 
 public class ClientNetwork {
-    // 1. 서버 접속 정보 (상수)
+    // 1. 서버 접속 정보 
     private static final String SERVER_IP = "127.0.0.1";
     private static final int PORT = 8080;
-    
+
+    //172.20.10.4
 
     private boolean loggedIn = false;
-private String loggedInId = null;
+    private String loggedInId = null;
 
     public boolean isLoggedIn() {
     return loggedIn;
@@ -115,21 +116,7 @@ private String loggedInId = null;
     }).start();
 }
 
-    public void requestUpdateUser(String updateData) {
-    new Thread(() -> {
-        try (
-            Socket socket = new Socket(SERVER_IP, PORT);
-            PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
-            BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()))
-        ) {
-            out.println(Protocol.UPDATE_USER_REQUEST + updateData);
-
-            String response = in.readLine();
-            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(null, response));
-
-        } catch (IOException e) {}
-    }).start();
-}
+    
 
     private BufferedReader listenerInput;
     private Thread listenerThread;
@@ -191,6 +178,39 @@ private String loggedInId = null;
         }).start();
     }
 
+    public void requestUpdateUser(String id, String pw, String name, String email, String phone) {
+    new Thread(() -> {
+        try (
+            Socket socket = new Socket(SERVER_IP, PORT);
+            PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
+            BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()))
+        ) {
+            // 패킷 형식: UPDATE_USER:id:pw:name:email:phone
+            String packet = Protocol.UPDATE_USER_REQUEST
+                          + id + ":" + pw + ":" + name + ":" + email + ":" + phone;
+
+            System.out.println("[클라] UPDATE 패킷 = " + packet);
+
+            out.println(packet);
+
+            String response = in.readLine();
+            System.out.println("[클라] UPDATE 응답 = " + response);
+
+            SwingUtilities.invokeLater(() -> {
+                if (response != null && response.startsWith(Protocol.SUCCESS_RESPONSE)) {
+                    JOptionPane.showMessageDialog(null, "회원 정보 수정 완료!", "성공", JOptionPane.INFORMATION_MESSAGE);
+                } else {
+                    JOptionPane.showMessageDialog(null, "수정 실패: 서버 오류 또는 형식 오류", "오류", JOptionPane.ERROR_MESSAGE);
+                }
+            });
+
+        } catch (IOException e) {
+            SwingUtilities.invokeLater(() ->
+                JOptionPane.showMessageDialog(null, "서버 연결 실패.", "연결 오류", JOptionPane.ERROR_MESSAGE)
+            );
+        }
+    }).start();
+}
 
 }
 

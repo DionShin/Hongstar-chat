@@ -35,25 +35,19 @@ public class SettingPanel extends JPanel{
     private class MyActionListener implements ActionListener {
     public void actionPerformed(ActionEvent e){
         if (e.getSource() == user_edit_bt) {
-            String id = JOptionPane.showInputDialog("ID 입력");
-            String pw = JOptionPane.showInputDialog("PW 입력");
-            String name = JOptionPane.showInputDialog("이름 입력");
-            String gender = JOptionPane.showInputDialog("성별 0/1 입력");
-            String birth = JOptionPane.showInputDialog("YYYY-MM-DD");
-            String email = JOptionPane.showInputDialog("Email");
-            String phone = JOptionPane.showInputDialog("Phone");
+    // 현재 로그인된 ID 전달 (네 프로젝트에 login 저장 방식에 따라 수정 가능)
+    String id = JOptionPane.showInputDialog("수정할 사용자 ID 입력");
 
-            String updateData = id+":"+pw+":"+name+":"+gender+":"+birth+":"+email+":"+phone;
-            ClientNetwork.getInstance().requestUpdateUser(updateData);
-
-        } else if (e.getSource() == logout_bt) {
-            ClientNetwork.getInstance().requestLogout();
-            JOptionPane.showMessageDialog(null, "로그아웃 완료. 앱을 재시작하세요.");
-
-        } else if (e.getSource() == leave_bt) {
+    new UserEditFrame(id);
+}else if (e.getSource() == leave_bt) {
             String id = JOptionPane.showInputDialog("ID 입력");
             String pw = JOptionPane.showInputDialog("PW 입력");
             ClientNetwork.getInstance().requestDeleteUser(id, pw);
+        }else if (e.getSource() == logout_bt) {
+        // 메인 화면 닫기
+        SwingUtilities.getWindowAncestor(SettingPanel.this).dispose();
+        // 로그인 화면 다시 띄우기
+        new LoginFrame();
         }
     }
 }

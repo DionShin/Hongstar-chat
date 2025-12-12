@@ -81,35 +81,7 @@ public class UserDao {
         }
     }
 
-     // 회원 정보 수정
-    public boolean updateUser(String id, String pw, String name,
-                              int gender, String birth,
-                              String email, String phone) {
-
-        String sql = "UPDATE user_table "
-                   + "SET password = ?, username = ?, gender = ?, birth = ?, email = ?, phone = ? "
-                   + "WHERE id = ?";
-
-        try (
-            Connection conn = DBUtil.getConnection();
-            PreparedStatement pstmt = conn.prepareStatement(sql)
-        ) {
-            pstmt.setString(1, pw);
-            pstmt.setString(2, name);
-            pstmt.setInt(3, gender);
-            pstmt.setString(4, birth);   // "YYYY-MM-DD"
-            pstmt.setString(5, email);
-            pstmt.setString(6, phone);
-            pstmt.setString(7, id);
-
-            int rows = pstmt.executeUpdate();
-            return rows > 0;
-
-        } catch (SQLException e) {
-            System.out.println("[서버] 회원 정보 수정 중 오류: " + e.getMessage());
-            return false;
-        }
-    }
+    
 
     // 회원 삭제
     public boolean deleteUser(String id) {
@@ -129,4 +101,30 @@ public class UserDao {
             return false;
         }
     }
+
+
+    //회원정보 수정
+    public boolean updateUser(String id, String pw, String name, String email, String phone) {
+
+    String sql = "UPDATE user_table "
+               + "SET password=?, username=?, email=?, phone=? "
+               + "WHERE id=?";
+
+    try (
+        Connection conn = DBUtil.getConnection();
+        PreparedStatement pstmt = conn.prepareStatement(sql)
+    ) {
+        pstmt.setString(1, pw);
+        pstmt.setString(2, name);
+        pstmt.setString(3, email);
+        pstmt.setString(4, phone);
+        pstmt.setString(5, id);
+
+        return pstmt.executeUpdate() > 0;
+
+    } catch (SQLException e) {
+        System.out.println("[서버] UPDATE 오류: " + e.getMessage());
+        return false;
+    }
+}
 }

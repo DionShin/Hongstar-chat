@@ -27,5 +27,7 @@ public class Protocol {
     
     // private static final String SERVER_IP = ""; 
     // private static final int PORT = null;
-    
+
+
+    public static final String USER_DELETE_REQUEST = "DELETE_USER:";
 }

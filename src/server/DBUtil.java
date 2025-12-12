@@ -12,7 +12,7 @@ public class DBUtil {
     private static final String URL =
     "jdbc:mysql://localhost:3306/hongstar?useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=UTF-8";
     private static final String USER = "root";      
-    private static final String PASSWORD = "0843"; 
+    private static final String PASSWORD = "dionshin0843"; 
 
     // MySQL 드라이버 로딩
     static {
