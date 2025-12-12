@@ -6,24 +6,31 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.net.Socket;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 
 import common.Protocol;
 
-/**
- * 클라이언트 한 명을 담당하는 스레드.
- * - 클라이언트가 보낸 한 줄을 읽고
- * - LOGIN / JOIN / LOGOUT / UPDATE_USER / DELETE_USER 요청을 처리한 뒤
- * - SUCCESS: 또는 FAIL: 형식으로 응답을 돌려줌.
- *
- * 현재 구조:
- *   1) 클라이언트가 소켓을 열고 문자열 1줄 전송
- *   2) 서버는 1줄 처리 후 1줄 응답
- *   3) 소켓을 닫고 종료 (요청당 1회 통신)
- */
 public class ClientHandler extends Thread {
 
-    private Socket socket;
-    private UserDao userDao;
+    // ===== 접속한 모든 클라이언트(전체 채팅) =====
+    private static final Set<ClientHandler> clients = new HashSet<>();
+
+    // ===== 로그인ID -> ClientHandler (DM 라우팅용) =====
+    private static final Map<String, ClientHandler> onlineUsers = new HashMap<>();
+
+    // ===== 그룹 채팅: room -> handlers =====
+    private static final Map<String, Set<ClientHandler>> groupRooms = new HashMap<>();
+
+    private final Socket socket;
+    private final UserDao userDao;
+
+    private BufferedReader in;
+    private BufferedWriter out;
+
+    private String loginId = null; // 이 연결이 로그인 성공한 ID
 
     public ClientHandler(Socket socket) {
         this.socket = socket;
@@ -32,217 +39,264 @@ public class ClientHandler extends Thread {
 
     @Override
     public void run() {
-        System.out.println("[서버] ClientHandler 스레드 시작");
+        System.out.println("[서버] ClientHandler 시작: " + socket.getInetAddress());
 
-        try (
-            BufferedReader in = new BufferedReader(
-                    new InputStreamReader(socket.getInputStream(), "UTF-8"));
-            BufferedWriter out = new BufferedWriter(
-                    new OutputStreamWriter(socket.getOutputStream(), "UTF-8"))
-        ) {
-            // 1. 클라이언트가 보낸 한 줄 읽기
-            String line = in.readLine();
-            if (line == null) {
-                return;
+        try {
+            in = new BufferedReader(new InputStreamReader(socket.getInputStream(), "UTF-8"));
+            out = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream(), "UTF-8"));
+
+            synchronized (clients) {
+                clients.add(this);
             }
 
-            System.out.println("[서버] 수신: " + line);
+            String line;
+            while ((line = in.readLine()) != null) {
+                System.out.println("[서버] 수신: " + line);
 
-            // 2. 요청 처리
-            String response = handleRequest(line);
+                String response = handleRequest(line);
 
-            // 3. 응답 전송
-            out.write(response);
-            out.write("\n");
-            out.flush();
-
-            System.out.println("[서버] 응답: " + response);
+                // 채팅류는 response=null (응답 필요 없게)
+                if (response != null) {
+                    send(response);
+                    System.out.println("[서버] 응답: " + response);
+                }
+            }
 
         } catch (IOException e) {
-            System.out.println("[서버] ClientHandler 오류: " + e.getMessage());
+            System.out.println("[서버] 연결 종료: " + e.getMessage());
         } finally {
-            try {
-                if (socket != null) {
-                    socket.close();
-                }
-                System.out.println("[서버] 클라이언트 소켓 종료");
-            } catch (IOException e) {
-                System.out.println("[서버] 소켓 종료 오류: " + e.getMessage());
-            }
+            cleanup();
         }
     }
 
-    // ------------------- 여기부터는 private 메소드들 (전부 클래스 안에 있음!!) -------------------
-
-    /**
-     * 클라이언트가 보낸 한 줄(line)을 보고
-     * 어떤 요청인지 판단해서 각각의 처리 메소드를 호출.
-     */
+    // ===================== 요청 분기 =====================
     private String handleRequest(String line) {
-    try {
 
-        if (line.startsWith(Protocol.LOGIN_REQUEST)) {
-            String data = line.substring(Protocol.LOGIN_REQUEST.length());
-            return handleLogin(data);
-        }
+        try {
+            if (line.startsWith(Protocol.LOGIN_REQUEST)) {
+                return handleLogin(line.substring(Protocol.LOGIN_REQUEST.length()));
+            }
+            else if (line.startsWith(Protocol.JOIN_REQUEST)) {
+                return handleJoin(line.substring(Protocol.JOIN_REQUEST.length()));
+            }
+            else if (line.startsWith(Protocol.LOGOUT_REQUEST)) {
+                return handleLogout();
+            }
+            else if (line.startsWith(Protocol.UPDATE_USER_REQUEST)) {
+                return handleUpdateUser(line.substring(Protocol.UPDATE_USER_REQUEST.length()));
+            }
+            else if (line.startsWith(Protocol.DELETE_USER_REQUEST)) {
+                return handleDeleteUser(line.substring(Protocol.DELETE_USER_REQUEST.length()));
+            }
 
-        else if (line.startsWith(Protocol.JOIN_REQUEST)) {
-            String data = line.substring(Protocol.JOIN_REQUEST.length());
-            return handleJoin(data);
-        }
+            // ===== 그룹 =====
+            else if (line.startsWith(Protocol.GROUP_JOIN)) {
+                String roomName = line.substring(Protocol.GROUP_JOIN.length()).trim();
+                joinGroup(roomName);
+                return Protocol.SUCCESS_RESPONSE + "GROUP_JOIN";
+            }
+            else if (line.startsWith(Protocol.GROUP_CHAT)) {
+                String data = line.substring(Protocol.GROUP_CHAT.length());
+                handleGroupChat(data);
+                return null;
+            }
 
-        else if (line.startsWith(Protocol.LOGOUT_REQUEST)) {
-            return handleLogout();
-        }
+            // ===== DM =====
+            else if (line.startsWith(Protocol.DIRECT_MESSAGE_REQUEST)) {
+                String data = line.substring(Protocol.DIRECT_MESSAGE_REQUEST.length());
+                handleDirectMessage(data);
+                return null;
+            }
 
-        else if (line.startsWith(Protocol.UPDATE_USER_REQUEST)) {
-            // UPDATE_USER:id:pw:name:email:phone  → gender/birth 제외 (네 DB 구조 기준!)
-            String data = line.substring(Protocol.UPDATE_USER_REQUEST.length());
-            return handleUpdateUser(data);
-        }
+            // ===== 전체 채팅 =====
+            else if (line.startsWith(Protocol.CHAT_MESSAGE_SEND)) {
+                String msg = line.substring(Protocol.CHAT_MESSAGE_SEND.length()); // "sender:msg"
+                broadcast(Protocol.CHAT_BROADCAST + msg);
+                return null;
+            }
 
-        else if (line.startsWith(Protocol.DELETE_USER_REQUEST)) {
-            // DELETE_USER:id:pw
-            String data = line.substring(Protocol.DELETE_USER_REQUEST.length());
-            return handleDeleteUser(data);
-        }
-
-        else {
             return Protocol.FAIL_RESPONSE + "알_수_없는_요청";
+
+        } catch (Exception e) {
+            System.out.println("[서버] 요청 처리 예외: " + e.getMessage());
+            return Protocol.FAIL_RESPONSE + "서버_오류";
         }
-
-    } catch (Exception e) {
-        System.out.println("[서버] 요청 처리 중 예외: " + e.getMessage());
-        return Protocol.FAIL_RESPONSE + "서버_오류";
     }
-}
 
+    // ===================== 회원 기능(유지) =====================
 
-    
-
-    /**
-     * 로그인 처리
-     * data 형식: "id:pw"
-     */
     private String handleLogin(String data) {
-    String[] parts = data.split(":");
-    if (parts.length != 2) {
-        return Protocol.FAIL_RESPONSE + "형식_오류";
-    }
-
-    String id = parts[0];
-    String pw = parts[1];
-
-    boolean ok = userDao.checkLogin(id, pw);
-    if (ok) {
-        return Protocol.SUCCESS_RESPONSE + id;
-    } else {
-        return Protocol.FAIL_RESPONSE + "ID_또는_PW_오류";
-    }
-}
-
-
-    /**
-     * 회원가입 처리
-     * data 형식: "id:pw:name:gender:birth:email:phone"
-     */
-    private String handleJoin(String data) {
         String[] parts = data.split(":");
-        if (parts.length != 7) {
-            return Protocol.FAIL_RESPONSE + "형식_오류";
-        }
+        if (parts.length != 2) return Protocol.FAIL_RESPONSE + "형식_오류";
 
         String id = parts[0];
         String pw = parts[1];
-        String name = parts[2];
-        int gender = Integer.parseInt(parts[3]);
-        String birth = parts[4];
-        String email = parts[5];
-        String phone = parts[6];
 
-        // 아이디 중복 체크
-        if (userDao.existsId(id)) {
-            return Protocol.FAIL_RESPONSE + "이미_존재하는_ID";
+        boolean ok = userDao.checkLogin(id, pw);
+        if (!ok) return Protocol.FAIL_RESPONSE + "ID_또는_PW_오류";
+
+        // 로그인 성공: 이 연결에 loginId 바인딩
+        this.loginId = id;
+        synchronized (onlineUsers) {
+            onlineUsers.put(id, this);
         }
 
-        boolean ok = userDao.insertUser(id, pw, name, gender, birth, email, phone);
-        if (ok) {
-            return Protocol.SUCCESS_RESPONSE + id;
-        } else {
-            return Protocol.FAIL_RESPONSE + "DB_오류";
-        }
+        return Protocol.SUCCESS_RESPONSE + id;
     }
 
-    /**
-     * 로그아웃 처리
-     * 현재 구조에서는 서버가 따로 로그인 상태를 유지하지 않기 때문에
-     * 단순히 "성공" 응답만 내려주면 됨.
-     * (클라이언트 쪽에서 로그인 화면으로 돌아가는 식으로 처리)
-     */
+    private String handleJoin(String data) {
+        String[] parts = data.split(":");
+        if (parts.length != 7) return Protocol.FAIL_RESPONSE + "형식_오류";
+
+        if (userDao.existsId(parts[0]))
+            return Protocol.FAIL_RESPONSE + "이미_존재하는_ID";
+
+        boolean ok = userDao.insertUser(
+                parts[0], parts[1], parts[2],
+                Integer.parseInt(parts[3]), parts[4], parts[5], parts[6]
+        );
+
+        return ok ? Protocol.SUCCESS_RESPONSE + parts[0]
+                  : Protocol.FAIL_RESPONSE + "DB_오류";
+    }
+
     private String handleLogout() {
-        // 필요하다면 여기서 서버측에서 세션/로그인 정보 정리 가능
+        // 연결 유지할 수도 있지만, 일단 로그아웃 처리만
+        if (loginId != null) {
+            synchronized (onlineUsers) {
+                onlineUsers.remove(loginId);
+            }
+            loginId = null;
+        }
         return Protocol.SUCCESS_RESPONSE + "LOGOUT";
     }
 
-    /**
-     * 사용자 정보 수정 처리
-     */
-    // ClientHandler.java 안
+    private String handleUpdateUser(String data) {
+        String[] parts = data.split(":", -1);
+        if (parts.length != 5) return Protocol.FAIL_RESPONSE + "형식_오류";
 
-/**
- * data 형식: "id:newPw:newName:newEmail:newPhone"
- */
-private String handleUpdateUser(String data) {
-
-    // 빈 항목 허용 — length 유지
-    String[] parts = data.split(":", -1);
-
-    System.out.println("[서버] UPDATE_USER data: " + data);
-    System.out.println("[서버] UPDATE_USER split length = " + parts.length);
-
-    if (parts.length != 5) {
-        return Protocol.FAIL_RESPONSE + "형식_오류";
+        boolean ok = userDao.updateUser(parts[0], parts[1], parts[2], parts[3], parts[4]);
+        return ok ? Protocol.SUCCESS_RESPONSE + parts[0]
+                  : Protocol.FAIL_RESPONSE + "DB_오류";
     }
 
-    String id       = parts[0];
-    String newPw    = parts[1];
-    String newName  = parts[2];
-    String newEmail = parts[3];
-    String newPhone = parts[4];
-
-    boolean ok = userDao.updateUser(id, newPw, newName, newEmail, newPhone);
-
-    if (ok) return Protocol.SUCCESS_RESPONSE + id;
-    return Protocol.FAIL_RESPONSE + "DB_오류";
-}
-
-    /**
-     * 사용자 삭제(회원 탈퇴) 처리
-     * data 형식: "id:pw"
-     *  - 비밀번호 확인 후 실제 삭제.
-     */
     private String handleDeleteUser(String data) {
         String[] parts = data.split(":");
-        if (parts.length != 2) {
-            return Protocol.FAIL_RESPONSE + "형식_오류";
+        if (parts.length != 2) return Protocol.FAIL_RESPONSE + "형식_오류";
+
+        boolean ok = userDao.checkLogin(parts[0], parts[1]);
+        if (!ok) return Protocol.FAIL_RESPONSE + "PW_오류";
+
+        boolean deleted = userDao.deleteUser(parts[0]);
+        return deleted ? Protocol.SUCCESS_RESPONSE + "DELETE_USER"
+                       : Protocol.FAIL_RESPONSE + "DB_오류";
+    }
+
+    // ===================== 채팅 기능 =====================
+
+    // 전체 브로드캐스트
+    private void broadcast(String packet) {
+        synchronized (clients) {
+            for (ClientHandler c : clients) {
+                c.send(packet);
+            }
+        }
+    }
+
+    // 그룹 입장
+    private void joinGroup(String roomName) {
+        if (roomName == null || roomName.isEmpty()) return;
+        synchronized (groupRooms) {
+            groupRooms.putIfAbsent(roomName, new HashSet<>());
+            groupRooms.get(roomName).add(this);
+        }
+        System.out.println("[서버] 그룹 입장: " + roomName + " / " + loginId);
+    }
+
+    // 그룹 채팅 data: "room:sender:msg"
+    private void handleGroupChat(String data) {
+        String[] parts = data.split(":", 3);
+        if (parts.length != 3) return;
+
+        String room = parts[0];
+        String sender = parts[1];
+        String msg = parts[2];
+
+        String packet = "GROUP:" + room + ":" + sender + ":" + msg;
+
+        synchronized (groupRooms) {
+            Set<ClientHandler> roomSet = groupRooms.get(room);
+            if (roomSet == null) return;
+
+            for (ClientHandler c : roomSet) {
+                c.send(packet);
+            }
+        }
+    }
+
+    // DM data: "toId:fromId:msg"
+    private void handleDirectMessage(String data) {
+        String[] parts = data.split(":", 3);
+        if (parts.length != 3) return;
+
+        String toId = parts[0];
+        String fromId = parts[1];
+        String msg = parts[2];
+
+        String packet = Protocol.DIRECT_MESSAGE_PREFIX + toId + ":" + fromId + ":" + msg;
+
+        ClientHandler to;
+        ClientHandler from;
+
+        synchronized (onlineUsers) {
+            to = onlineUsers.get(toId);
+            from = onlineUsers.get(fromId);
         }
 
-        String id = parts[0];
-        String pw = parts[1];
+        // 받는 사람에게
+        if (to != null) to.send(packet);
+        // 보낸 사람에게도(내 화면에도 보이게)
+        if (from != null && from != to) from.send(packet);
+    }
 
-        // 비밀번호 확인
-        boolean ok = userDao.checkLogin(id, pw);
-        if (!ok) {
-            return Protocol.FAIL_RESPONSE + "PW_오류";
+    // ===================== 송신/정리 =====================
+
+    private void send(String packet) {
+        try {
+            out.write(packet);
+            out.write("\n");
+            out.flush();
+        } catch (IOException ignored) {}
+    }
+
+    private void cleanup() {
+        synchronized (clients) {
+            clients.remove(this);
         }
 
-        boolean deleted = userDao.deleteUser(id);
-        if (deleted) {
-            System.out.println("[서버] 회원 삭제 성공: " + id);
-            return Protocol.SUCCESS_RESPONSE + "DELETE_USER";
-        } else {
-            System.out.println("[서버] 회원 삭제 실패: " + id);
-            return Protocol.FAIL_RESPONSE + "DB_오류";
+        if (loginId != null) {
+            synchronized (onlineUsers) {
+                onlineUsers.remove(loginId);
+            }
+        }
+
+        synchronized (groupRooms) {
+            for (Set<ClientHandler> set : groupRooms.values()) {
+                set.remove(this);
+            }
+        }
+
+        try { socket.close(); } catch (IOException ignored) {}
+        System.out.println("[서버] 종료: " + socket.getInetAddress());
+    }
+
+    // (옵션) 서버 공지 필요하면 ServerMain에서 호출 가능
+    public static void broadcastFromServer(String msg) {
+        String packet = Protocol.CHAT_BROADCAST + "[SERVER]:" + msg;
+        synchronized (clients) {
+            for (ClientHandler c : clients) {
+                c.send(packet);
+            }
         }
     }
 }
